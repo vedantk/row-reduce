@@ -1,8 +1,13 @@
-This row reduction algorithm attempts to bring matrices to reduced row 
-echelon form. The implementation is interesting because it's completely
-symbolic. Supply your matrices as vectors of vectors of symbols.
+#lang racket
 
-Here's a demo:
+;; row-reduce.rkt
+;;
+;; Vedant Kumar <vsk@berkeley.edu>
+;;
+;; This row reduction algorithm attempts to bring matrices to reduced row 
+;; echelon form. The implementation is interesting because it's completely
+;; symbolic. Supply your matrices as vectors of vectors of symbols.
+
 ---------------------------------------------------------------------------
 Before:
 '#(#(1 0 0) #(0 1 0) #(0 0 1))

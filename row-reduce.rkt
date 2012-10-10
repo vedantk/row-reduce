@@ -9,6 +9,7 @@
 ;; symbolic. Supply your matrices as vectors of vectors of symbols.
 
 (require racket/stream)
+(require racket/pretty)
 
 (define (row-reduce! mat)
   (define rows (vector-length mat))
@@ -25,13 +26,15 @@
     (swap-rows! i (first-nonzero-row i j))
     (let ([pivot (mat-get! i j)])
       (when (not (eq? pivot 1))
-        (scale-row! i `(/ 1 ,pivot))))
+        (scale-row! i `(/ 1 ,pivot))
+        (mat-set! i j 1)))
     
     ;; A[k != i][j] -> 0.
     (for ([k (in-range rows)])
       (when (and (not (= i k))
                  (not (eq? (mat-get! k j) 0)))
-        (add-multiple! i `(- ,(mat-get! k j)) k)))
+        (add-multiple! i `(- ,(mat-get! k j)) k)
+        (mat-set! k i 0)))
     (reduce-submatrix! (+ i 1) (+ j 1)))
   
   (define (contains-nonzero-row? i j)
@@ -101,8 +104,7 @@
       [(list (list '/ 1 val) val) 1]
       [(list -1 rhs) `(- ,(simplify rhs))]
       [(list lhs -1) `(- ,(simplify lhs))]
-      [(list lhs rhs) `(* ,(simplify lhs) ,(simplify rhs))]
-      [else (error x)]))
+      [(list lhs rhs) `(* ,(simplify lhs) ,(simplify rhs))]))
   
   (define (simplify:/ x)
     (match (op-args x)
@@ -156,13 +158,24 @@
     (vector (vector 1 0 0 'x)
             (vector 1 1 0 '(+ x 1))
             (vector 2 3 1 '(/ x 2))))
+
+  (define m4
+    (vector (vector 'a '(+ 2 b) 'c)
+            (vector 'b '(+ 4 b) 'd)))
+
+  (define m5
+    (vector (vector 'a '(* 3 b) '(/ c 3) 5)
+            (vector '(* 3 b) '(+ a 1) 'c 7)
+            (vector '(* 2 c) '(/ a c) 'b 13)))
   
   (define (test! m)
     (displayln "Before:")
-    (displayln m)
+    (pretty-print m)
     (displayln "After:")
     (row-reduce! m)
-    (displayln m)
+    (pretty-print m)
     (newline))
   
-  (map test! (list m1 m2 m3)))
+  (map test! (list m1 m2 m3 m4 m5)))
+
+(test)

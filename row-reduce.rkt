@@ -52,7 +52,7 @@
       (let ([tmp (vector-ref mat b)])
         (vector-set! mat b (vector-ref mat a))
         (vector-set! mat a tmp))))
-    
+  
   (define (scale-row! i multiplier)
     (for ([j (in-range columns)])
       (mat-set! i j `(* ,multiplier ,(mat-get! i j)))))
@@ -71,48 +71,73 @@
   
   (reduce-submatrix! 0 0))
 
-(define (simplify expr)
-  (define op car)
-  (define op-args cdr)
-  (define op-lhs cadr)
-  (define op-rhs caddr)
-  
+(define op car)
+(define op-lhs cadr)
+(define op-rhs caddr)
+(define op-args cdr)
+(define op-atom? (or/c number? symbol?))
+
+(define (simplify expr)  
   (define (simplify:+ x)
     (match (op-args x)
       [(list lhs 0) (simplify lhs)]
       [(list 0 rhs) (simplify rhs)]
       [(list val val) (simplify:* `(* 2 ,val))]
+      [(list val (list '- k)) (simplify:- `(- ,val ,k))]      
+      [(list (list '- k) val) (simplify:- `(- ,val ,k))]
+      [(list lhs (list '* k x))
+       (if (and (number? k) (< k 0))
+           (simplify:- `(- ,lhs (* ,(- k) ,x)))
+           `(+ ,(simplify lhs) (* ,(simplify k) ,(simplify x))))]
       [(list (list '+ a b) (list '- b)) (simplify a)]
       [(list (list '+ a b) (list '- a)) (simplify b)]
-      [(list lhs rhs) `(+ ,(simplify lhs) ,(simplify rhs))]))
+      [(list lhs rhs) 
+       (cond
+         [(and (number? rhs) (< rhs 0)) (simplify:- `(- ,lhs ,(- rhs)))]
+         [(and (number? lhs) (< lhs 0)) (simplify:- `(- ,rhs ,(- lhs)))]
+         [else `(+ ,(simplify lhs) ,(simplify rhs))])]))
   
   (define (simplify:- x)
     (match (op-args x)
+      [(list (list '* a b))
+       (if (number? a)
+           `(* ,(- a) ,(simplify b))
+           `(- (* ,(simplify a) ,(simplify b))))]
       [(list val) `(- ,(simplify val))]
       [(list lhs 0) (simplify lhs)]
       [(list 0 rhs) `(- ,(simplify rhs))]
+      [(list val (list '- k)) (simplify:+ `(+ ,val ,k))]
       [(list val val) 0]
-      [(list lhs rhs) `(- ,(simplify lhs) ,(simplify rhs))]))
+      [(list lhs rhs) 
+       (cond
+         [(and (number? rhs) (< rhs 0)) (simplify:+ `(+ ,lhs ,(- rhs)))]
+         [else `(- ,(simplify lhs) ,(simplify rhs))])]))
   
-  (define (simplify:* x)
+  (define (simplify:* x)        
     (match (op-args x)
       [(list lhs 0) 0]
       [(list 0 rhs) 0]
       [(list 1 rhs) (simplify rhs)]
       [(list lhs 1) (simplify lhs)]
-      [(list val (list '/ 1 val)) 1]
-      [(list (list '/ 1 val) val) 1]
       [(list -1 rhs) `(- ,(simplify rhs))]
       [(list lhs -1) `(- ,(simplify lhs))]
-      [(list lhs rhs) `(* ,(simplify lhs) ,(simplify rhs))]))
+      [(list val (list '/ k val)) (simplify k)]
+      [(list (list '/ k val) val) (simplify k)]
+      [(list lhs rhs) 
+       (if (and (number? rhs) (not (number? lhs)))
+           `(* ,rhs ,(simplify lhs))
+           `(* ,(simplify lhs) ,(simplify rhs)))]))
   
   (define (simplify:/ x)
     (match (op-args x)
       [(list 0 rhs) 0]
       [(list val val) 1]
+      [(list (list '* k x) x) (simplify k)]
+      [(list (list '* k x) k) (simplify x)]
+      [(list (list '/' a b) a) `(/ 1 ,(simplify b))]
       [(list lhs rhs) `(/ ,(simplify lhs) ,(simplify rhs))]))
   
-  (define (simplify-op x)    
+  (define (simplify-op x) 
     (match (op x)
       ['+ (simplify:+ x)]
       ['- (simplify:- x)]
@@ -122,11 +147,10 @@
   
   (define (eval-if-possible x)
     (cond
-      [(number? x) x]
-      [(symbol? x) x]
+      [(op-atom? x) x]
       [else
        (let ([result (simplify-op x)])
-         (if (or (number? result) (symbol? result))
+         (if (op-atom? result)
              result
              (let ([args (map eval-if-possible (op-args result))])
                (if (= (length args)
@@ -135,6 +159,24 @@
                    (cons (op result) args)))))]))
   
   (eval-if-possible expr))
+
+(define (print-infix expr)
+  (cond
+    [(number? expr) (number->string expr)]
+    [(symbol? expr) (symbol->string expr)]
+    [else
+     (let ([substrs (map print-infix (op-args expr))])
+       (match (op expr)
+         ['*
+          (match (map op-atom? (op-args expr))
+            [(list #t #f) (string-append (car substrs) (cadr substrs))]
+            [(list #f #t) (string-append (cadr substrs) (car substrs))]
+            [else (format " ~a*~a " (car substrs) (cadr substrs))])]
+         ['-
+          (match (op-args expr)
+            [(list val) (string-append "-" (car substrs))]
+            [else (format " ~a - ~a " (car substrs) (cadr substrs))])]
+         [else (format " ~a~a~a " (car substrs) (op expr) (cadr substrs))]))]))
 
 (define (persistent-simplify expr)
   (let* ([result (simplify expr)]
@@ -158,11 +200,11 @@
     (vector (vector 1 0 0 'x)
             (vector 1 1 0 '(+ x 1))
             (vector 2 3 1 '(/ x 2))))
-
+  
   (define m4
     (vector (vector 'a '(+ 2 b) 'c)
             (vector 'b '(+ 4 b) 'd)))
-
+  
   (define m5
     (vector (vector 'a '(* 3 b) '(/ c 3) 5)
             (vector '(* 3 b) '(+ a 1) 'c 7)
@@ -177,5 +219,3 @@
     (newline))
   
   (map test! (list m1 m2 m3 m4 m5)))
-
-(test)

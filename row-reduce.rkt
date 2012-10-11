@@ -9,7 +9,6 @@
 ;; symbolic. Supply your matrices as vectors of vectors of symbols.
 
 (require racket/stream)
-(require racket/pretty)
 
 (define (row-reduce! mat)
   (define rows (vector-length mat))
@@ -83,14 +82,14 @@
       [(list lhs 0) (simplify lhs)]
       [(list 0 rhs) (simplify rhs)]
       [(list val val) (simplify:* `(* 2 ,val))]
-      [(list val (list '- k)) (simplify:- `(- ,val ,k))]      
+      [(list (list '+ a b) (list '- b)) (simplify a)]
+      [(list (list '+ a b) (list '- a)) (simplify b)]
+      [(list val (list '- k)) (simplify:- `(- ,val ,k))]
       [(list (list '- k) val) (simplify:- `(- ,val ,k))]
       [(list lhs (list '* k x))
        (if (and (number? k) (< k 0))
            (simplify:- `(- ,lhs (* ,(- k) ,x)))
            `(+ ,(simplify lhs) (* ,(simplify k) ,(simplify x))))]
-      [(list (list '+ a b) (list '- b)) (simplify a)]
-      [(list (list '+ a b) (list '- a)) (simplify b)]
       [(list lhs rhs) 
        (cond
          [(and (number? rhs) (< rhs 0)) (simplify:- `(- ,lhs ,(- rhs)))]
@@ -160,30 +159,40 @@
   
   (eval-if-possible expr))
 
-(define (print-infix expr)
-  (cond
-    [(number? expr) (number->string expr)]
-    [(symbol? expr) (symbol->string expr)]
-    [else
-     (let ([substrs (map print-infix (op-args expr))])
-       (match (op expr)
-         ['*
-          (match (map op-atom? (op-args expr))
-            [(list #t #f) (string-append (car substrs) (cadr substrs))]
-            [(list #f #t) (string-append (cadr substrs) (car substrs))]
-            [else (format " ~a*~a " (car substrs) (cadr substrs))])]
-         ['-
-          (match (op-args expr)
-            [(list val) (string-append "-" (car substrs))]
-            [else (format " ~a - ~a " (car substrs) (cadr substrs))])]
-         [else (format " ~a~a~a " (car substrs) (op expr) (cadr substrs))]))]))
-
 (define (persistent-simplify expr)
   (let* ([result (simplify expr)]
          [next-result (simplify result)])
     (if (equal? result next-result)
         result
         (persistent-simplify next-result))))
+
+(define (format-infix expr)
+  (define (wrap x)
+    (cond
+      [(or (op-atom? x)
+           (memq (op expr) '(+ -)))
+       (format-infix x)]
+      [else (format "(~a)" (format-infix x))]))
+  
+  (cond
+    [(number? expr) (number->string expr)]
+    [(symbol? expr) (symbol->string expr)]
+    [(= (length (op-args expr)) 1)
+     (format "~a~a" (op expr) (wrap (op-lhs expr)))]
+    [else
+     (if (eq? (op expr) '*)
+         (format "~a~a" (wrap (op-lhs expr)) (wrap (op-rhs expr)))
+         (format "~a~a~a"
+            (wrap (op-lhs expr)) (op expr) (wrap (op-rhs expr))))]))
+
+(define (print-matrix mat)
+  (for ([row mat])
+    (printf "[")
+    (for ([j (in-range (vector-length row))])
+      (printf "~a" (format-infix (vector-ref row j)))
+      (when (< j (- (vector-length row) 1))
+        (printf ", ")))
+    (printf "]~n")))
 
 (define (test)
   (define m1
@@ -212,10 +221,11 @@
   
   (define (test! m)
     (displayln "Before:")
-    (pretty-print m)
+    (print-matrix m)
     (displayln "After:")
     (row-reduce! m)
-    (pretty-print m)
+    (print-matrix m)
+    
     (newline))
   
   (map test! (list m1 m2 m3 m4 m5)))
